@@ -1,5 +1,27 @@
 // Helper functions for point cloud shaders
 
+// Decodes a 32-bit packed RGB value from a byte-addressed point buffer.
+// PointShader's compact point layout is x/y/z/color, each 4 bytes.
+float4 getColorRGBA(ByteAddressBuffer data, int pointStride, int offset, uint instanceID)
+{
+    uint packed = data.Load(instanceID * pointStride + offset);
+
+    uint4 unpackedColor;
+    unpackedColor.r = packed >> 16 & 0xFF;
+    unpackedColor.g = packed >> 8 & 0xFF;
+    unpackedColor.b = packed & 0xFF;
+    unpackedColor.a = 255;
+
+    return unpackedColor / 255.0f;
+}
+
+// Decodes a 32-bit packed RGB value from a byte-addressed point buffer.
+// PointShader's compact point layout is x/y/z/color, each 4 bytes.
+float getColor(ByteAddressBuffer data, int pointStride, int offset, uint instanceID)
+{
+    return asfloat(data.Load(instanceID * pointStride + offset));
+}
+
 // Unpacks a 32-bit RGBA color into a float4
 float4 UnpackRGBA(float rgba)
 {

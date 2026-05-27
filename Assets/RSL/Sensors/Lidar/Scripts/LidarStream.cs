@@ -67,7 +67,8 @@ namespace RSL.Sensors.Lidar
     {
         RGB,
         Intensity,
-        Z
+        Z,
+        Auto
     }
 
 
@@ -111,6 +112,7 @@ namespace RSL.Sensors.Lidar
         GraphicsBuffer _meshTriangles;
         GraphicsBuffer _meshVertices;
         GraphicsBuffer _ptData;
+        GraphicsBuffer _ptByteData;
 
         public bool useTF = true;
         public float scale = 1.0f;
@@ -123,6 +125,7 @@ namespace RSL.Sensors.Lidar
         public ColorMode colorMode = ColorMode.Intensity;
         public Color intensityMin = Color.black;
         public Color intensityMax = Color.white;
+        public int colorOffset = 12;
 
         public Slider densitySlider;
         public Slider sizeSlider;
@@ -147,6 +150,7 @@ namespace RSL.Sensors.Lidar
         private LocalKeyword _rgbdKeyword;
         private LocalKeyword _intensityKeyword;
         private LocalKeyword _zKeyword;
+        private LocalKeyword _autoKeyword;
 
         public GameObject p;
 
@@ -165,6 +169,7 @@ namespace RSL.Sensors.Lidar
             _meshVertices = new GraphicsBuffer(GraphicsBuffer.Target.Structured, mesh.vertices.Length, 12);
             _meshVertices.SetData(mesh.vertices);
             _ptData = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxPts, vizType.GetSize());
+            _ptByteData = new GraphicsBuffer(GraphicsBuffer.Target.Raw, maxPts * vizType.GetSize() / 4, 4);
 
 
             renderParams = new RenderParams(point_material);
@@ -175,12 +180,18 @@ namespace RSL.Sensors.Lidar
             renderParams.matProps.SetMatrix("_ObjectToWorld", Matrix4x4.Translate(new Vector3(0, 0, 0)));
             renderParams.matProps.SetFloat("_PointSize", scale);
             renderParams.matProps.SetBuffer("_PointData", _ptData);
+            renderParams.matProps.SetBuffer("_PointBytes", _ptByteData);
+            renderParams.matProps.SetInt("_ColorOffset", colorOffset);
+            renderParams.matProps.SetInt("_PointStride", vizType.GetSize());
+            renderParams.matProps.SetFloat("_ColorValueMin", 0f);
+            renderParams.matProps.SetFloat("_ColorValueRange", 1f);
             renderParams.matProps.SetInt("_BaseVertexIndex", (int)mesh.GetBaseVertex(0));
             renderParams.matProps.SetBuffer("_Positions", _meshVertices);
 
             _rgbdKeyword = new LocalKeyword(renderParams.material.shader, "COLOR_RGB");
             _intensityKeyword = new LocalKeyword(renderParams.material.shader, "COLOR_INTENSITY");
             _zKeyword = new LocalKeyword(renderParams.material.shader, "COLOR_Z");
+            _autoKeyword = new LocalKeyword(renderParams.material.shader, "COLOR_AUTO");
 
             SetColorMode(renderParams.material, _intensityKeyword);
 
@@ -191,7 +202,8 @@ namespace RSL.Sensors.Lidar
                 {
                     "RGB",
                     "Intensity",
-                    "Z"
+                    "Z",
+                    "Auto"
                 };
                 colorModeDropdown.AddOptions(colorOptions);
                 colorModeDropdown.onValueChanged.AddListener(OnColorSelect);
@@ -303,6 +315,7 @@ namespace RSL.Sensors.Lidar
             if (renderParams.matProps != null)
             {
                 renderParams.matProps.SetFloat("_PointSize", scale);
+                renderParams.matProps.SetInt("_ColorOffset", colorOffset);
                 if (colorMode == ColorMode.RGB)
                 {
                     SetColorMode(renderParams.material, _rgbdKeyword);
@@ -314,6 +327,10 @@ namespace RSL.Sensors.Lidar
                 else if (colorMode == ColorMode.Z)
                 {
                     SetColorMode(renderParams.material, _zKeyword);
+                }
+                else if (colorMode == ColorMode.Auto)
+                {
+                    SetColorMode(renderParams.material, _autoKeyword);
                 }
                 renderParams.matProps.SetColor("_ColorMin", intensityMin);
                 renderParams.matProps.SetColor("_ColorMax", intensityMax);
@@ -339,6 +356,8 @@ namespace RSL.Sensors.Lidar
             _meshVertices = null;
             _ptData?.Dispose();
             _ptData = null;
+            _ptByteData?.Dispose();
+            _ptByteData = null;
             Destroy(splatRendererObj);
         }
 
@@ -419,7 +438,35 @@ namespace RSL.Sensors.Lidar
                 GaussianSplatRenderer renderer = splatRendererObj.GetComponent<GaussianSplatRenderer>();
                 renderer.m_Asset = asset;
             } else {
-                _ptData.SetData(LidarUtils.ExtractData(pointCloud, displayPts, vizType, out _numPts));
+                byte[] pointData = LidarUtils.ExtractData(pointCloud, displayPts, vizType, out _numPts);
+                int pointStride = vizType.GetSize();
+                if (colorOffset >= 0 && colorOffset + sizeof(float) <= pointStride)
+                {
+                    float minValue = float.PositiveInfinity;
+                    float maxValue = float.NegativeInfinity;
+
+                    for (int i = 0; i < _numPts; i++)
+                    {
+                        float value = System.BitConverter.ToSingle(pointData, i * pointStride + colorOffset);
+                        if (float.IsNaN(value) || float.IsInfinity(value)) continue;
+                        minValue = Mathf.Min(minValue, value);
+                        maxValue = Mathf.Max(maxValue, value);
+                    }
+
+                    if (!float.IsInfinity(minValue) && !float.IsInfinity(maxValue))
+                    {
+                        float range = maxValue - minValue;
+
+                        Debug.Log("Min: " + minValue + ", Max: " + maxValue + ", Range: " + range);
+                        // minValue = 0.0f;
+                        // range = 10.0f;
+                        renderParams.matProps.SetInt("_PointStride", pointStride);
+                        renderParams.matProps.SetFloat("_ColorValueMin", minValue);
+                        renderParams.matProps.SetFloat("_ColorValueRange", Mathf.Abs(range) > Mathf.Epsilon ? range : 1f);
+                    }
+                }
+                _ptData.SetData(pointData);
+                _ptByteData.SetData(pointData);
             }
 
             string txt;
@@ -506,6 +553,7 @@ namespace RSL.Sensors.Lidar
                 ColorMode.RGB => _rgbdKeyword,
                 ColorMode.Intensity => _intensityKeyword,
                 ColorMode.Z => _zKeyword,
+                ColorMode.Auto => _autoKeyword,
                 _ => _intensityKeyword // Default to intensity if something goes wrong
             });
         }
@@ -557,6 +605,7 @@ namespace RSL.Sensors.Lidar
             mat.SetKeyword(_rgbdKeyword, _rgbdKeyword == keyword);
             mat.SetKeyword(_intensityKeyword, _intensityKeyword == keyword);
             mat.SetKeyword(_zKeyword, _zKeyword == keyword);
+            mat.SetKeyword(_autoKeyword, _autoKeyword == keyword);
             Debug.Log("Set color mode to " + keyword.name);
         }
 
