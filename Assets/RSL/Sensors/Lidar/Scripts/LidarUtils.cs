@@ -352,7 +352,51 @@ namespace RSL.Sensors.Lidar
             return new Color(r / 255f, g / 255f, b / 255f, 1.0f); // Fixed alpha
         }
 
-        public static byte[] ExtractData(PointCloud2Msg data, int maxPts, VizType vizType, out int numPts)
+        private static int Align4(int value)
+        {
+            return (value + 3) & ~3;
+        }
+
+        private static int GetPointFieldSize(PointFieldMsg field)
+        {
+            int elementSize = field.datatype switch
+            {
+                1 => 1, // INT8
+                2 => 1, // UINT8
+                3 => 2, // INT16
+                4 => 2, // UINT16
+                5 => 4, // INT32
+                6 => 4, // UINT32
+                7 => 4, // FLOAT32
+                8 => 8, // FLOAT64
+                _ => 0
+            };
+
+            return elementSize * Mathf.Max(1, (int)field.count);
+        }
+
+        private static int[] GetPaddedFieldOffsets(PointCloud2Msg data, out int paddedPointStep)
+        {
+            int[] adjustedOffsets = new int[data.fields.Length];
+            int[] fieldOrder = Enumerable.Range(0, data.fields.Length)
+                .OrderBy(i => data.fields[i].offset)
+                .ToArray();
+
+            int currentOffset = 0;
+            foreach (int fieldIndex in fieldOrder)
+            {
+                PointFieldMsg field = data.fields[fieldIndex];
+                int fieldSize = GetPointFieldSize(field);
+                currentOffset = Align4(currentOffset);
+                adjustedOffsets[fieldIndex] = currentOffset;
+                currentOffset += Align4(fieldSize);
+            }
+
+            paddedPointStep = Align4(currentOffset);
+            return adjustedOffsets;
+        }
+
+        public static byte[] ExtractData(PointCloud2Msg data, int maxPts, VizType vizType, out int numPts, out int pointStep, out List<int> fieldOffsets)
         {
 
             /**
@@ -367,10 +411,6 @@ namespace RSL.Sensors.Lidar
             if (maxPts < 1) maxPts = 1;
             int decmiator = 1;
 
-            int data_size = vizType.GetSize();
-            // int data_size = (int) data.point_step;
-
-            // Debug.Log("Data fields " + string.Join(", ", data.fields.Select(f => f.name)));
             numPts = (int)(data.data.Length / data.point_step);
 
             if (numPts > maxPts)
@@ -379,25 +419,30 @@ namespace RSL.Sensors.Lidar
                 numPts = numPts / decmiator;
             }
 
-            byte[] outData = new byte[numPts * data_size];
+            int[] adjustedOffsets = GetPaddedFieldOffsets(data, out pointStep);
+            fieldOffsets = adjustedOffsets.ToList();
+            byte[] outData = new byte[numPts * pointStep];
 
-            // For each point...
             for (int i = 0; i < numPts; i++)
             {
-                // Grab the point at the decimated index
-                int inIdx = (int)(i * data.point_step * (decmiator));
-                int outIdx = i * data_size;
+                int sourcePointOffset = i * decmiator * (int)data.point_step;
+                int destPointOffset = i * pointStep;
 
-                // For each field in the point...
-                for (int j = 0; j < vizType.GetFieldCount(); j++)
+                for (int fieldIndex = 0; fieldIndex < data.fields.Length; fieldIndex++)
                 {
-                    // Copy the 4 bytes in the float
-                    for (int k = 0; k < 4; k++)
+                    PointFieldMsg field = data.fields[fieldIndex];
+                    int fieldSize = GetPointFieldSize(field);
+                    int sourceOffset = sourcePointOffset + (int)field.offset;
+                    int destOffset = destPointOffset + adjustedOffsets[fieldIndex];
+                    int bytesToCopy = Mathf.Min(fieldSize, data.data.Length - sourceOffset);
+
+                    if (bytesToCopy > 0)
                     {
-                        outData[outIdx + j * 4 + k] = data.data[inIdx + (int)data.fields[j].offset + k];
+                        System.Buffer.BlockCopy(data.data, sourceOffset, outData, destOffset, bytesToCopy);
                     }
                 }
             }
+
             return outData;
         }
 

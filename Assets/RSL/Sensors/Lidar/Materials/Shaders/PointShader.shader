@@ -32,14 +32,7 @@ Shader "Unlit/ROS/Point"
                 float4 color: COLOR0;
             };
 
-            struct lidardata
-            {
-                float3 position;
-                float intensity;
-            };
-
             StructuredBuffer<float3> _Positions;
-            StructuredBuffer<lidardata> _PointData;
             ByteAddressBuffer _PointBytes;
 
             uniform uint _BaseVertexIndex;
@@ -55,8 +48,7 @@ Shader "Unlit/ROS/Point"
             v2f vert (uint vertexID: SV_VertexID, uint instanceID: SV_InstanceID)
             {
                 v2f o;
-                float3 pos = _PointData[instanceID].position;
-                // float3 pos = asfloat(_PointBytes.Load3(instanceID * _PointStep));
+                float3 pos = asfloat(_PointBytes.Load3(instanceID * _PointStep));
                 float2 uv = _Positions[_BaseVertexIndex + vertexID] * _PointSize;
                 uv /= float2(_ScreenParams.x/_ScreenParams.y, 1);
                 float4 wpos = mul(_ObjectToWorld, float4(pos, 1.0f));
@@ -64,10 +56,10 @@ Shader "Unlit/ROS/Point"
                 o.pos = UnityObjectToClipPos(wpos) + float4(uv,0,0);
 
                 #ifdef COLOR_INTENSITY
-                    o.color = lerp(_ColorMin, _ColorMax, _PointData[instanceID].intensity);
-
+                    float normalizedColor = (getColor(_PointBytes, _PointStep, _ColorOffset, instanceID) - 0.0f) / 10.0f;
+                    o.color = lerp(_ColorMin, _ColorMax, normalizedColor); 
                 #elif defined(COLOR_RGB)
-                    o.color = UnpackRGBA(_PointData[instanceID].intensity);
+                    o.color = getColorRGBA(_PointBytes, _PointStep, _ColorOffset, instanceID);
                 #elif defined(COLOR_AUTO)
                     // o.color = getColor(_PointBytes, _ColorOffset, instanceID);
                     float normalizedColor = (getColor(_PointBytes, _PointStep, _ColorOffset, instanceID) - _ColorValueMin) / _ColorValueRange;

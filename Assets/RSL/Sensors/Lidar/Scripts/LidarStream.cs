@@ -112,7 +112,6 @@ namespace RSL.Sensors.Lidar
 
         GraphicsBuffer _meshTriangles;
         GraphicsBuffer _meshVertices;
-        GraphicsBuffer _ptData;
         GraphicsBuffer _ptByteData;
 
         public bool useTF = true;
@@ -173,7 +172,6 @@ namespace RSL.Sensors.Lidar
             _meshTriangles.SetData(mesh.triangles);
             _meshVertices = new GraphicsBuffer(GraphicsBuffer.Target.Structured, mesh.vertices.Length, 12);
             _meshVertices.SetData(mesh.vertices);
-            _ptData = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxPts, vizType.GetSize());
             _ptByteData = new GraphicsBuffer(GraphicsBuffer.Target.Raw, maxPts * maxPointFields, 4);
 
 
@@ -184,12 +182,11 @@ namespace RSL.Sensors.Lidar
 
             renderParams.matProps.SetMatrix("_ObjectToWorld", Matrix4x4.Translate(new Vector3(0, 0, 0)));
             renderParams.matProps.SetFloat("_PointSize", scale);
-            renderParams.matProps.SetBuffer("_PointData", _ptData);
             renderParams.matProps.SetBuffer("_PointBytes", _ptByteData);
             renderParams.matProps.SetInt("_ColorOffset", colorOffset);
-            renderParams.matProps.SetInt("_PointStride", vizType.GetSize());
             renderParams.matProps.SetFloat("_ColorValueMin", 0f);
             renderParams.matProps.SetFloat("_ColorValueRange", 1f);
+            renderParams.matProps.SetInt("_PointStep", 16);
             renderParams.matProps.SetInt("_BaseVertexIndex", (int)mesh.GetBaseVertex(0));
             renderParams.matProps.SetBuffer("_Positions", _meshVertices);
 
@@ -213,6 +210,8 @@ namespace RSL.Sensors.Lidar
                 colorModeDropdown.AddOptions(colorOptions);
                 colorModeDropdown.onValueChanged.AddListener(OnColorSelect);
             }
+
+            fieldToOffset = new List<int>();
 
             if (colorFieldDropdown != null)
             {
@@ -365,8 +364,6 @@ namespace RSL.Sensors.Lidar
             _meshTriangles = null;
             _meshVertices?.Dispose();
             _meshVertices = null;
-            _ptData?.Dispose();
-            _ptData = null;
             _ptByteData?.Dispose();
             _ptByteData = null;
             Destroy(splatRendererObj);
@@ -390,8 +387,21 @@ namespace RSL.Sensors.Lidar
             }
         }
 
-        private void UpdateColorFieldNames(PointCloud2Msg pointCloud)
+        private void UpdateColorFieldNames(PointCloud2Msg pointCloud, List<int> adjustedFieldOffsets)
         {
+            int previousColorOffset = colorOffset;
+            fieldToOffset = adjustedFieldOffsets;
+
+            if (colorFieldDropdown == null)
+            {
+                return;
+            }
+            if (adjustedFieldOffsets.Count == 0)
+            {
+                colorFieldDropdown.ClearOptions();
+                return;
+            }
+
             // Extract field names from the message
             List<string> newValues = new List<string>(pointCloud.fields.Length);
             foreach (var f in pointCloud.fields)
@@ -399,15 +409,32 @@ namespace RSL.Sensors.Lidar
                 newValues.Add(f.name);
             }
 
-            if (!colorFieldDropdown.options.Select(option => option.text).SequenceEqual(newValues))
+            bool optionsChanged = !colorFieldDropdown.options.Select(option => option.text).SequenceEqual(newValues);
+            int selectedIndex = colorFieldDropdown.value;
+
+            if (optionsChanged)
             {
+                selectedIndex = adjustedFieldOffsets.FindIndex(offset => offset == previousColorOffset);
+                if (selectedIndex < 0)
+                {
+                    selectedIndex = System.Array.FindIndex(pointCloud.fields, field => (int)field.offset == previousColorOffset);
+                }
+                if (selectedIndex < 0 || selectedIndex >= adjustedFieldOffsets.Count)
+                {
+                    selectedIndex = Mathf.Clamp(colorFieldDropdown.value, 0, adjustedFieldOffsets.Count - 1);
+                }
+
                 colorFieldDropdown.ClearOptions();
                 colorFieldDropdown.AddOptions(newValues);
+                colorFieldDropdown.SetValueWithoutNotify(selectedIndex);
                 colorFieldDropdown.RefreshShownValue();
-                fieldToOffset.Clear();
-                foreach (var f in pointCloud.fields) {
-                    fieldToOffset.Add((int)f.offset);
-                }
+            }
+
+            selectedIndex = Mathf.Clamp(selectedIndex, 0, fieldToOffset.Count - 1);
+            if (selectedIndex >= 0 && selectedIndex < fieldToOffset.Count)
+            {
+                colorOffset = fieldToOffset[selectedIndex];
+                renderParams.matProps.SetInt("_ColorOffset", colorOffset);
             }
         }
 
@@ -418,11 +445,6 @@ namespace RSL.Sensors.Lidar
                 UpdatePose(pointCloud.header.frame_id);
             }
             if (pointCloud.data.Length == 0) return;
-
-            int fields = pointCloud.fields.Length;
-            int point_step = (int) pointCloud.point_step;
-            point_step = vizType.GetSize();
-            UpdateColorFieldNames(pointCloud);
 
             if (vizType == VizType.Splat)
             {
@@ -472,7 +494,10 @@ namespace RSL.Sensors.Lidar
                 GaussianSplatRenderer renderer = splatRendererObj.GetComponent<GaussianSplatRenderer>();
                 renderer.m_Asset = asset;
             } else {
-                byte[] pointData = LidarUtils.ExtractData(pointCloud, displayPts, vizType, out _numPts);
+                byte[] pointData = LidarUtils.ExtractData(pointCloud, displayPts, vizType, out _numPts, out int point_step, out List<int> adjustedFieldOffsets);
+                UpdateColorFieldNames(pointCloud, adjustedFieldOffsets);
+                renderParams.matProps.SetInt("_PointStep", point_step);
+
                 if (colorOffset >= 0 && colorOffset + sizeof(float) <= point_step)
                 {
                     float minValue = float.PositiveInfinity;
@@ -493,12 +518,10 @@ namespace RSL.Sensors.Lidar
                         Debug.Log("Min: " + minValue + ", Max: " + maxValue + ", Range: " + range);
                         // minValue = 0.0f;
                         // range = 10.0f;
-                        renderParams.matProps.SetInt("_PointStep", point_step);
                         renderParams.matProps.SetFloat("_ColorValueMin", minValue);
                         renderParams.matProps.SetFloat("_ColorValueRange", Mathf.Abs(range) > Mathf.Epsilon ? range : 1f);
                     }
                 }
-                _ptData.SetData(pointData);
                 _ptByteData.SetData(pointData);
             }
 
@@ -593,7 +616,7 @@ namespace RSL.Sensors.Lidar
 
         public void OnColorFieldSelect(int value)
         {
-            if (value < 0 || value >= colorFieldDropdown.options.Count)
+            if (value < 0 || value >= colorFieldDropdown.options.Count || value >= fieldToOffset.Count)
             {
                 Debug.LogWarning("Invalid color field selected: " + value);
                 return;
