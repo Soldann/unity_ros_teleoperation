@@ -47,7 +47,7 @@ Shader "Unlit/ROS/Point"
             uniform float4x4 _ObjectToWorld;
             uniform float4 _ColorMin;
             uniform float4 _ColorMax;
-            uniform int _PointStride;
+            uniform int _PointStep;
             uniform int _ColorOffset;
             uniform float _ColorValueMin;
             uniform float _ColorValueRange;
@@ -56,6 +56,7 @@ Shader "Unlit/ROS/Point"
             {
                 v2f o;
                 float3 pos = _PointData[instanceID].position;
+                // float3 pos = asfloat(_PointBytes.Load3(instanceID * _PointStep));
                 float2 uv = _Positions[_BaseVertexIndex + vertexID] * _PointSize;
                 uv /= float2(_ScreenParams.x/_ScreenParams.y, 1);
                 float4 wpos = mul(_ObjectToWorld, float4(pos, 1.0f));
@@ -69,7 +70,7 @@ Shader "Unlit/ROS/Point"
                     o.color = UnpackRGBA(_PointData[instanceID].intensity);
                 #elif defined(COLOR_AUTO)
                     // o.color = getColor(_PointBytes, _ColorOffset, instanceID);
-                    float normalizedColor = (getColor(_PointBytes, _PointStride, _ColorOffset, instanceID) - _ColorValueMin) / _ColorValueRange;
+                    float normalizedColor = (getColor(_PointBytes, _PointStep, _ColorOffset, instanceID) - _ColorValueMin) / _ColorValueRange;
                     o.color = lerp(_ColorMin, _ColorMax, normalizedColor); 
                     // o.color = lerp(_ColorMin, _ColorMax, (getColor(_PointBytes, _ColorOffset, instanceID) + 1.0f) * 0.5f);
                 #elif defined(COLOR_Z)

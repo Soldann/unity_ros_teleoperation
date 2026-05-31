@@ -2,9 +2,9 @@
 
 // Decodes a 32-bit packed RGB value from a byte-addressed point buffer.
 // PointShader's compact point layout is x/y/z/color, each 4 bytes.
-float4 getColorRGBA(ByteAddressBuffer data, int pointStride, int offset, uint instanceID)
+float4 getColorRGBA(ByteAddressBuffer data, int pointStep, int offset, uint instanceID)
 {
-    uint packed = data.Load(instanceID * pointStride + offset);
+    uint packed = data.Load(instanceID * pointStep + offset);
 
     uint4 unpackedColor;
     unpackedColor.r = packed >> 16 & 0xFF;
@@ -17,9 +17,9 @@ float4 getColorRGBA(ByteAddressBuffer data, int pointStride, int offset, uint in
 
 // Decodes a 32-bit packed RGB value from a byte-addressed point buffer.
 // PointShader's compact point layout is x/y/z/color, each 4 bytes.
-float getColor(ByteAddressBuffer data, int pointStride, int offset, uint instanceID)
+float getColor(ByteAddressBuffer data, int pointStep, int offset, uint instanceID)
 {
-    return asfloat(data.Load(instanceID * pointStride + offset));
+    return asfloat(data.Load(instanceID * pointStep + offset));
 }
 
 // Unpacks a 32-bit RGBA color into a float4

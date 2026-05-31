@@ -8,7 +8,7 @@ using Unity.Mathematics;
 using GaussianSplatting.Runtime;
 using Unity.Collections;
 using UnityEngine.Experimental.Rendering;
-using System.Diagnostics;
+using System.Linq;
 
 namespace RSL.Sensors.Lidar
 {
@@ -368,7 +368,9 @@ namespace RSL.Sensors.Lidar
             int decmiator = 1;
 
             int data_size = vizType.GetSize();
+            // int data_size = (int) data.point_step;
 
+            // Debug.Log("Data fields " + string.Join(", ", data.fields.Select(f => f.name)));
             numPts = (int)(data.data.Length / data.point_step);
 
             if (numPts > maxPts)
@@ -389,18 +391,6 @@ namespace RSL.Sensors.Lidar
                 // For each field in the point...
                 for (int j = 0; j < vizType.GetFieldCount(); j++)
                 {
-                    if (j >= data.fields.Length)
-                    {
-                        // Debug.LogWarning($"LidarUtils: Field index {j} out of bounds for fields count {data.fields.Length}. Filling with 0.");
-
-                        // If we are missing the last field (ie xyz only) then fill with 0
-                        for (int k = 0; k < 4; k++)
-                        {
-                            outData[outIdx + j * 4 + k] = 0;
-                        }
-                        continue;
-
-                    }
                     // Copy the 4 bytes in the float
                     for (int k = 0; k < 4; k++)
                     {

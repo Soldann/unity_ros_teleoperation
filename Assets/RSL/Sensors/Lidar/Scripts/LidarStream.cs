@@ -10,6 +10,7 @@ using UnityEngine.Rendering;
 using Unity.VisualScripting;
 using GaussianSplatting.Runtime;
 using Unity.Mathematics;
+using System.Linq;
 
 namespace RSL.Sensors.Lidar
 {
@@ -117,6 +118,7 @@ namespace RSL.Sensors.Lidar
         public bool useTF = true;
         public float scale = 1.0f;
         public int maxPts = 300_000;
+        public int maxPointFields = 16;
         public int displayPts = 10;
         public int sides = 3;
         private RenderParams renderParams;
@@ -130,6 +132,9 @@ namespace RSL.Sensors.Lidar
         public Slider densitySlider;
         public Slider sizeSlider;
         public Dropdown colorModeDropdown;
+
+        public Dropdown colorFieldDropdown;
+        private List<int> fieldToOffset;
 
         public Dropdown vizTypeDropdown;
 
@@ -169,7 +174,7 @@ namespace RSL.Sensors.Lidar
             _meshVertices = new GraphicsBuffer(GraphicsBuffer.Target.Structured, mesh.vertices.Length, 12);
             _meshVertices.SetData(mesh.vertices);
             _ptData = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxPts, vizType.GetSize());
-            _ptByteData = new GraphicsBuffer(GraphicsBuffer.Target.Raw, maxPts * vizType.GetSize() / 4, 4);
+            _ptByteData = new GraphicsBuffer(GraphicsBuffer.Target.Raw, maxPts * maxPointFields, 4);
 
 
             renderParams = new RenderParams(point_material);
@@ -207,6 +212,12 @@ namespace RSL.Sensors.Lidar
                 };
                 colorModeDropdown.AddOptions(colorOptions);
                 colorModeDropdown.onValueChanged.AddListener(OnColorSelect);
+            }
+
+            if (colorFieldDropdown != null)
+            {
+                colorFieldDropdown.ClearOptions();
+                colorFieldDropdown.onValueChanged.AddListener(OnColorFieldSelect);
             }
 
             if (vizTypeDropdown != null)
@@ -379,6 +390,27 @@ namespace RSL.Sensors.Lidar
             }
         }
 
+        private void UpdateColorFieldNames(PointCloud2Msg pointCloud)
+        {
+            // Extract field names from the message
+            List<string> newValues = new List<string>(pointCloud.fields.Length);
+            foreach (var f in pointCloud.fields)
+            {
+                newValues.Add(f.name);
+            }
+
+            if (!colorFieldDropdown.options.Select(option => option.text).SequenceEqual(newValues))
+            {
+                colorFieldDropdown.ClearOptions();
+                colorFieldDropdown.AddOptions(newValues);
+                colorFieldDropdown.RefreshShownValue();
+                fieldToOffset.Clear();
+                foreach (var f in pointCloud.fields) {
+                    fieldToOffset.Add((int)f.offset);
+                }
+            }
+        }
+
         public void OnPointcloud(PointCloud2Msg pointCloud)
         {
             if (_parent == null || _parent.name != pointCloud.header.frame_id)
@@ -388,7 +420,9 @@ namespace RSL.Sensors.Lidar
             if (pointCloud.data.Length == 0) return;
 
             int fields = pointCloud.fields.Length;
-            uint point_step = pointCloud.point_step;
+            int point_step = (int) pointCloud.point_step;
+            point_step = vizType.GetSize();
+            UpdateColorFieldNames(pointCloud);
 
             if (vizType == VizType.Splat)
             {
@@ -439,15 +473,14 @@ namespace RSL.Sensors.Lidar
                 renderer.m_Asset = asset;
             } else {
                 byte[] pointData = LidarUtils.ExtractData(pointCloud, displayPts, vizType, out _numPts);
-                int pointStride = vizType.GetSize();
-                if (colorOffset >= 0 && colorOffset + sizeof(float) <= pointStride)
+                if (colorOffset >= 0 && colorOffset + sizeof(float) <= point_step)
                 {
                     float minValue = float.PositiveInfinity;
                     float maxValue = float.NegativeInfinity;
 
                     for (int i = 0; i < _numPts; i++)
                     {
-                        float value = System.BitConverter.ToSingle(pointData, i * pointStride + colorOffset);
+                        float value = System.BitConverter.ToSingle(pointData, i * point_step + colorOffset);
                         if (float.IsNaN(value) || float.IsInfinity(value)) continue;
                         minValue = Mathf.Min(minValue, value);
                         maxValue = Mathf.Max(maxValue, value);
@@ -460,7 +493,7 @@ namespace RSL.Sensors.Lidar
                         Debug.Log("Min: " + minValue + ", Max: " + maxValue + ", Range: " + range);
                         // minValue = 0.0f;
                         // range = 10.0f;
-                        renderParams.matProps.SetInt("_PointStride", pointStride);
+                        renderParams.matProps.SetInt("_PointStep", point_step);
                         renderParams.matProps.SetFloat("_ColorValueMin", minValue);
                         renderParams.matProps.SetFloat("_ColorValueRange", Mathf.Abs(range) > Mathf.Epsilon ? range : 1f);
                     }
@@ -556,6 +589,18 @@ namespace RSL.Sensors.Lidar
                 ColorMode.Auto => _autoKeyword,
                 _ => _intensityKeyword // Default to intensity if something goes wrong
             });
+        }
+
+        public void OnColorFieldSelect(int value)
+        {
+            if (value < 0 || value >= colorFieldDropdown.options.Count)
+            {
+                Debug.LogWarning("Invalid color field selected: " + value);
+                return;
+            }
+
+            colorOffset = fieldToOffset[value];
+            renderParams.matProps.SetInt("_ColorOffset", colorOffset);
         }
 
         public void OnVizTypeSelect(int value)
