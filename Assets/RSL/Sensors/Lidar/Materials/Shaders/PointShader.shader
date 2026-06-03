@@ -56,7 +56,7 @@ Shader "Unlit/ROS/Point"
                 o.pos = UnityObjectToClipPos(wpos) + float4(uv,0,0);
 
                 #ifdef COLOR_INTENSITY
-                    float normalizedColor = (getColor(_PointBytes, _PointStep, _ColorOffset, instanceID) - 0.0f) / 10.0f;
+                    float normalizedColor = (getColor(_PointBytes, _PointStep, _ColorOffset, instanceID) - _ColorValueMin) / _ColorValueRange;
                     o.color = lerp(_ColorMin, _ColorMax, normalizedColor); 
                 #elif defined(COLOR_RGB)
                     o.color = getColorRGBA(_PointBytes, _PointStep, _ColorOffset, instanceID);

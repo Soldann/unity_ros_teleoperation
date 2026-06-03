@@ -123,9 +123,15 @@ namespace RSL.Sensors.Lidar
         private RenderParams renderParams;
         public VizType vizType = VizType.Lidar;
 
-        public ColorMode colorMode = ColorMode.Intensity;
+        public ColorMode colorMode = ColorMode.RGB;
         public Color intensityMin = Color.black;
         public Color intensityMax = Color.white;
+        public float pointMin = 0.0f;
+        public float pointMax = 10.0f;
+
+        public TMPro.TMP_InputField pointMinInput;
+        public TMPro.TMP_InputField pointMaxInput;
+        public bool autoIntensityRange = true;
         public int colorOffset = 12;
 
         public Slider densitySlider;
@@ -195,7 +201,7 @@ namespace RSL.Sensors.Lidar
             _zKeyword = new LocalKeyword(renderParams.material.shader, "COLOR_Z");
             _autoKeyword = new LocalKeyword(renderParams.material.shader, "COLOR_AUTO");
 
-            SetColorMode(renderParams.material, _intensityKeyword);
+            SetColorMode(renderParams.material, _rgbdKeyword);
 
             if (colorModeDropdown != null)
             {
@@ -354,6 +360,9 @@ namespace RSL.Sensors.Lidar
             {
                 displayPts = 0;
             }
+
+            pointMinInput?.SetTextWithoutNotify(pointMin.ToString());
+            pointMaxInput?.SetTextWithoutNotify(pointMax.ToString());
         }
 
         private void OnDestroy()
@@ -511,7 +520,7 @@ namespace RSL.Sensors.Lidar
                         maxValue = Mathf.Max(maxValue, value);
                     }
 
-                    if (!float.IsInfinity(minValue) && !float.IsInfinity(maxValue))
+                    if (autoIntensityRange && !float.IsInfinity(minValue) && !float.IsInfinity(maxValue))
                     {
                         float range = maxValue - minValue;
 
@@ -519,7 +528,11 @@ namespace RSL.Sensors.Lidar
                         // minValue = 0.0f;
                         // range = 10.0f;
                         renderParams.matProps.SetFloat("_ColorValueMin", minValue);
-                        renderParams.matProps.SetFloat("_ColorValueRange", Mathf.Abs(range) > Mathf.Epsilon ? range : 1f);
+                        renderParams.matProps.SetFloat("_ColorValueRange", Mathf.Abs(range) > Mathf.Epsilon ? range : 0.1f);
+                    } else if (!autoIntensityRange)
+                    {
+                        renderParams.matProps.SetFloat("_ColorValueMin", pointMin);
+                        renderParams.matProps.SetFloat("_ColorValueRange", Mathf.Abs(pointMax - pointMin) > Mathf.Epsilon ? pointMax - pointMin : 0.1f);
                     }
                 }
                 _ptByteData.SetData(pointData);
@@ -612,6 +625,7 @@ namespace RSL.Sensors.Lidar
                 ColorMode.Auto => _autoKeyword,
                 _ => _intensityKeyword // Default to intensity if something goes wrong
             });
+            OnValidate();
         }
 
         public void OnColorFieldSelect(int value)
@@ -624,6 +638,7 @@ namespace RSL.Sensors.Lidar
 
             colorOffset = fieldToOffset[value];
             renderParams.matProps.SetInt("_ColorOffset", colorOffset);
+            OnValidate();
         }
 
         public void OnVizTypeSelect(int value)
@@ -643,6 +658,38 @@ namespace RSL.Sensors.Lidar
             else
             {
                 splatRendererObj.SetActive(false);
+            }
+        }
+
+        public void ToggleAutoIntensity()
+        {
+            autoIntensityRange = !autoIntensityRange;
+            OnValidate();
+        }
+
+        public void OnPointMaxChange(string maxStr)
+        {
+            if (float.TryParse(maxStr, out float max))
+            {
+                pointMax = max;
+                OnValidate();
+            }
+            else
+            {
+                Debug.LogWarning("Invalid max point value: " + maxStr);
+            }
+        }
+
+        public void OnPointMinChange(string minStr)
+        {
+            if (float.TryParse(minStr, out float min))
+            {
+                pointMin = min;
+                OnValidate();
+            }
+            else
+            {
+                Debug.LogWarning("Invalid min point value: " + minStr);
             }
         }
 
