@@ -524,9 +524,7 @@ namespace RSL.Sensors.Lidar
                     {
                         float range = maxValue - minValue;
 
-                        Debug.Log("Min: " + minValue + ", Max: " + maxValue + ", Range: " + range);
-                        // minValue = 0.0f;
-                        // range = 10.0f;
+                        // Debug.Log("Min: " + minValue + ", Max: " + maxValue + ", Range: " + range);
                         renderParams.matProps.SetFloat("_ColorValueMin", minValue);
                         renderParams.matProps.SetFloat("_ColorValueRange", Mathf.Abs(range) > Mathf.Epsilon ? range : 0.1f);
                     } else if (!autoIntensityRange)
