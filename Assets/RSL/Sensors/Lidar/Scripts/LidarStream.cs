@@ -413,7 +413,7 @@ namespace RSL.Sensors.Lidar
             if (vizType == VizType.Splat)
             {
 
-                LidarUtils.SplatData data = LidarUtils.ExtractSplat(pointCloud, displayPts, vizType, out _numPts);
+                LidarUtils.SplatData data = LidarUtils.ExtractSplat(pointCloud, displayPts, vizType, colorOffset, ref pointMin, ref pointMax, out _numPts);
 
                 GaussianSplatAsset.VectorFormat m_FormatPos = GaussianSplatAsset.VectorFormat.Float32;
                 GaussianSplatAsset.VectorFormat m_FormatScale = GaussianSplatAsset.VectorFormat.Float32;

@@ -418,7 +418,7 @@ namespace RSL.Sensors.Lidar
             return (size + multipleOf - 1) / multipleOf * multipleOf;
         }
 
-        public static SplatData ExtractSplat(PointCloud2Msg data, int maxPts, VizType vizType, out int numPts)
+        public static SplatData ExtractSplat(PointCloud2Msg data, int maxPts, VizType vizType, int colourOffset, ref float min_colour, ref float max_colour, out int numPts)
         {
 
             /**
@@ -455,6 +455,20 @@ namespace RSL.Sensors.Lidar
             float3 max_scale = default;
             float4 min_dc = default;
             float4 max_dc = default;
+
+            if (colourOffset >= 0) {
+                min_colour = float.PositiveInfinity;
+                max_colour = float.NegativeInfinity;
+                // Calculate min and max colour values for normalization
+                for (int i = 0; i < numPts; i++)
+                {
+                    int inIdx = (int)(i * data.point_step * (decmiator));
+                    float colour = System.BitConverter.ToSingle(data.data, inIdx + (int) data.fields[colourOffset].offset);
+                    min_colour = Mathf.Min(min_colour, colour);
+                    max_colour = Mathf.Max(max_colour, colour);
+                }
+            }
+
             // For each point...
             for (int i = 0; i < numPts; i++)
             {
@@ -471,15 +485,32 @@ namespace RSL.Sensors.Lidar
                 }
                 // Copy the last 16 bytes (four floats) from the incoming point into color data
                 int textureIndex = SplatIndexToTextureIndex((uint) i);
-                float3 dc0 = new float3(
-                    System.BitConverter.ToSingle(data.data, inIdx + 52),
-                    System.BitConverter.ToSingle(data.data, inIdx + 56),
-                    System.BitConverter.ToSingle(data.data, inIdx + 60)
-                );
                 float opacity = System.BitConverter.ToSingle(data.data, inIdx + 64);
-                dc0 = GaussianUtils.SH0ToColor(dc0);
-                opacity = GaussianUtils.Sigmoid(opacity);
-                color[textureIndex] = new float4(dc0.x, dc0.y, dc0.z, opacity);
+                if (colourOffset < 0) // Default 
+                {
+                    float3 dc0 = new float3(
+                        System.BitConverter.ToSingle(data.data, inIdx + 52),
+                        System.BitConverter.ToSingle(data.data, inIdx + 56),
+                        System.BitConverter.ToSingle(data.data, inIdx + 60)
+                    );
+                    dc0 = GaussianUtils.SH0ToColor(dc0);
+                    opacity = GaussianUtils.Sigmoid(opacity);
+                    color[textureIndex] = new float4(dc0.x, dc0.y, dc0.z, opacity);
+                } else // Read from selected data
+                {
+                    float colour = System.BitConverter.ToSingle(data.data, inIdx + (int) data.fields[colourOffset].offset);
+                    colour = Mathf.InverseLerp(min_colour, max_colour, colour); // Normalize to 0-1 range
+                    // Color colorUnpacked = LidarUtils.UnpackRGBA(colour);
+                    // float3 dc0 = new float3(
+                    //     colorUnpacked.r,
+                    //     colorUnpacked.g,
+                    //     colorUnpacked.b
+                    // );
+                    // dc0 = GaussianUtils.SH0ToColor(new float3(colour, colour, colour));
+                    opacity = GaussianUtils.Sigmoid(opacity);
+                    color[textureIndex] = new float4(colour, colour, colour, opacity);
+                    // color[textureIndex] = new float4(dc0.x, dc0.y, dc0.z, opacity);
+                }
 
                 // Copy the 16 bytes (four floats) starting from offset 24 of the incoming point into rotation data
                 float w = System.BitConverter.ToSingle(data.data, inIdx + 24);
