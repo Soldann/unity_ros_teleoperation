@@ -499,17 +499,11 @@ namespace RSL.Sensors.Lidar
                 } else // Read from selected data
                 {
                     float colour = System.BitConverter.ToSingle(data.data, inIdx + (int) data.fields[colourOffset].offset);
-                    colour = Mathf.InverseLerp(min_colour, max_colour, colour); // Normalize to 0-1 range
-                    // Color colorUnpacked = LidarUtils.UnpackRGBA(colour);
-                    // float3 dc0 = new float3(
-                    //     colorUnpacked.r,
-                    //     colorUnpacked.g,
-                    //     colorUnpacked.b
-                    // );
-                    // dc0 = GaussianUtils.SH0ToColor(new float3(colour, colour, colour));
+                    // colour = Mathf.InverseLerp(min_colour, max_colour, colour); // Normalize to 0-1 range
+                    Color colorUnpacked = LidarUtils.UnpackRGBA(colour);
                     opacity = GaussianUtils.Sigmoid(opacity);
-                    color[textureIndex] = new float4(colour, colour, colour, opacity);
-                    // color[textureIndex] = new float4(dc0.x, dc0.y, dc0.z, opacity);
+                    // color[textureIndex] = new float4(colour, colour, colour, opacity);
+                    color[textureIndex] = new float4(colorUnpacked.r, colorUnpacked.g, colorUnpacked.b, opacity);
                 }
 
                 // Copy the 16 bytes (four floats) starting from offset 24 of the incoming point into rotation data
